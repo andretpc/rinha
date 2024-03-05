@@ -1,0 +1,24 @@
+[package]
+name = "rinha"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.79"
+axum = "0.6.20"
+chrono = { version = "0.4.34", features = ["serde"] }
+dotenv = "0.15.0"
+hyperlocal = "0.8.0"
+mongodb = "2.8.1"
+nix = { version = "0.27.1", features = ["fs","mman"] }
+serde = "1.0.196"
+serde_json = "1.0.113" 
+speedy = "0.8.7"
+thiserror = "1.0.56"
+tokio = { version = "1.32.0", features = ["full"] }
+actix-web = "4"
+nohash-hasher = "0.2.0"
+futures = "0.3.30"
+
