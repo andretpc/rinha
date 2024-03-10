@@ -23,6 +23,20 @@ use std::{fs::remove_file, path};
 async fn main() {
     dotenv().ok();
 
+    if let Ok(dir_entries) = std::fs::read_dir("/dev/shm") {
+        for dir_entry in dir_entries {
+            if let Ok(dir_entry) = dir_entry {
+                if dir_entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|file_name| file_name.starts_with("dk-rinha-2024"))
+                {
+                    let _ = remove_file(dir_entry.path());
+                }
+            }
+        }
+    }
+
     let config = config();
 
     let app_state = AppState::new(&config).await;
