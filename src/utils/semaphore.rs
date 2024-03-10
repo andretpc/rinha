@@ -7,7 +7,7 @@ use std::{
 use tokio::sync::RwLock;
 
 pub struct Semaphore {
-    sems: RwLock<HashMap<i32, AtomicPtr<sem_t>>>,
+    sems: RwLock<HashMap<String, AtomicPtr<sem_t>>>,
 }
 
 impl Semaphore {
@@ -17,29 +17,31 @@ impl Semaphore {
         Self { sems }
     }
 
-    pub async fn release(&self, key: i32) {
-        if let Some(sem) = self.sems.read().await.get(&key) {
+    pub async fn release(&self, key: &str) {
+        if let Some(sem) = self.sems.read().await.get(key) {
             unsafe { sem_post(sem.load(Ordering::SeqCst)) };
         }
     }
 
-    pub async fn wait(&self, key: i32) {
-        if let Some(sem) = self.sems.read().await.get(&key) {
+    pub async fn wait(&self, key: &str) {
+        if let Some(sem) = self.sems.read().await.get(key) {
             unsafe { sem_wait(sem.load(Ordering::SeqCst)) };
 
             return;
         }
 
-        unsafe {
-            let sem = Self::init(&key);
+        let sem = unsafe {
+            let sem = Self::init(key);
 
             sem_wait(sem.load(Ordering::SeqCst));
 
-            self.sems.write().await.insert(key, sem);
+            sem
         };
+
+        self.sems.write().await.insert(key.to_string(), sem);
     }
 
-    fn init(key: &i32) -> AtomicPtr<sem_t> {
+    fn init(key: &str) -> AtomicPtr<sem_t> {
         let name = CString::new(format!("/dk-rinha-2024-sem-{key}")).unwrap();
         let semaphore = Self::open_semaphore(&name);
         let atomic_ptr = AtomicPtr::new(std::ptr::null_mut());

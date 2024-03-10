@@ -3,20 +3,12 @@ use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use speedy::{Readable, Writable};
 
-use crate::utils::{Error, Value};
-
 #[derive(Serialize, Deserialize, Debug, Clone, Readable, Writable)]
 #[serde(rename_all = "lowercase")]
 
 pub enum Kind {
     C,
     D,
-}
-
-impl std::fmt::Display for Kind {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Readable, Writable)]
@@ -62,23 +54,6 @@ pub struct Transaction {
     pub description: String,
 
     pub date: String,
-}
-
-impl Into<Value> for Transaction {
-    fn into(self) -> Value {
-        Value::Bin(self.write_to_vec().unwrap())
-    }
-}
-
-impl TryInto<Transaction> for &Value {
-    type Error = Error;
-
-    fn try_into(self) -> Result<Transaction, Self::Error> {
-        match self {
-            Value::Bin(bin) => Ok(Transaction::read_from_buffer(&bin).unwrap()),
-            _ => Err(Error::TypeError),
-        }
-    }
 }
 
 impl Into<TransactionDTO> for Transaction {

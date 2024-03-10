@@ -2,6 +2,7 @@ mod app_config;
 mod app_error;
 mod app_state;
 mod balance;
+mod client;
 mod handlers;
 mod statement;
 mod transaction;

@@ -1,5 +1,5 @@
 use nix::libc::{
-    c_void, close, ftruncate, memcpy, mmap, mremap, off_t, shm_open, shm_unlink, size_t, unlink,
+    c_void, close, ftruncate, memcpy, mmap, mremap, off_t, shm_open, shm_unlink, size_t,
     MAP_SHARED, MREMAP_MAYMOVE, O_CREAT, O_RDWR, PROT_READ, PROT_WRITE,
 };
 use std::{
@@ -10,59 +10,67 @@ use std::{
 
 pub struct Mmap {
     name: CString,
-    addr: AtomicPtr<c_void>,
-    len_addr: AtomicPtr<c_void>,
+    address: AtomicPtr<c_void>,
+    length_address: AtomicPtr<c_void>,
 }
 
 impl Mmap {
-    const INIT_LEN: u32 = 4;
+    const INIT_LENGTH: u32 = 4;
 
     pub fn new(name: &str) -> Self {
-        let (len, len_addr) = Self::init_len(name);
+        let (length, length_address) = Self::init_length(name);
 
-        let shm_name = CString::new(format!("/dk-rinha-2024-mmap-{name}")).unwrap();
-        let shm_fd = Self::open_shared_memory(&shm_name, len);
-        let addr = Self::map(shm_fd, len);
+        let name = Self::mmap_name(name);
+        let fd = Self::open_shared_memory(&name, length);
+        let address = Self::map_to_memory(fd, length);
 
         let atomic_ptr = AtomicPtr::new(std::ptr::null_mut());
 
-        atomic_ptr.store(addr, Ordering::SeqCst);
+        atomic_ptr.store(address, Ordering::SeqCst);
 
         Self {
-            name: shm_name,
-            len_addr,
-            addr: atomic_ptr,
+            name,
+            address: atomic_ptr,
+            length_address,
         }
     }
 
-    fn init_len(name: &str) -> (u32, AtomicPtr<c_void>) {
-        let shm_len_name = CString::new(format!("/dk-rinha-2024-mmap-len-{name}")).unwrap();
-        let shm_len_fd = Self::open_shared_memory(&shm_len_name, 4);
-        let len_addr = Self::map(shm_len_fd, 4);
+    fn mmap_name(name: &str) -> CString {
+        CString::new(format!("/dk-rinha-2024-mmap-{name}")).unwrap()
+    }
 
-        let bytes = unsafe { std::slice::from_raw_parts(len_addr as *const u8, 4) };
+    fn mmap_length_name(name: &str) -> CString {
+        CString::new(format!("/dk-rinha-2024-mmap-len-{name}")).unwrap()
+    }
 
-        let len: u32 = match bytes.iter().all(|&b| b == 0) {
+    fn init_length(name: &str) -> (u32, AtomicPtr<c_void>) {
+        let mmap_length_name = Self::mmap_length_name(name);
+        let fd = Self::open_shared_memory(&mmap_length_name, 4);
+        let length_address = Self::map_to_memory(fd, 4);
+
+        let bytes = unsafe { std::slice::from_raw_parts(length_address as *const u8, 4) };
+
+        let length: u32 = match bytes.iter().all(|&b| b == 0) {
             false => u32::from_le_bytes(bytes.try_into().unwrap()),
             true => {
-                let bytes = u32::to_le_bytes(Self::INIT_LEN);
+                let bytes = u32::to_le_bytes(Self::INIT_LENGTH);
 
                 unsafe {
-                    memcpy(len_addr, bytes.as_ptr() as *const c_void, 4);
+                    memcpy(length_address, bytes.as_ptr() as *const c_void, 4);
                 };
 
-                Self::INIT_LEN
+                Self::INIT_LENGTH
             }
         };
 
-        let len_atomic_ptr = AtomicPtr::new(std::ptr::null_mut());
+        let length_atomic_ptr = AtomicPtr::new(std::ptr::null_mut());
 
-        len_atomic_ptr.store(len_addr, Ordering::SeqCst);
+        length_atomic_ptr.store(length_address, Ordering::SeqCst);
 
-        (len, len_atomic_ptr)
+        (length, length_atomic_ptr)
     }
 
-    fn open_shared_memory(name: &CString, len: u32) -> i32 {
+    fn open_shared_memory(name: &CString, length: u32) -> i32 {
         let shm_fd = unsafe { shm_open(name.as_ptr(), O_RDWR | O_CREAT, 0o666) };
 
         if shm_fd < 0 {
@@ -73,13 +81,13 @@ impl Mmap {
         }
 
         unsafe {
-            ftruncate(shm_fd, len as off_t);
+            ftruncate(shm_fd, length as off_t);
         }
 
         shm_fd
     }
 
-    fn map(shm_fd: i32, len: u32) -> *mut c_void {
+    fn map_to_memory(shm_fd: i32, len: u32) -> *mut c_void {
         unsafe {
             let addr = mmap(
                 ptr::null_mut(),
@@ -97,54 +105,52 @@ impl Mmap {
     }
 
     pub fn write(&self, bytes: &[u8]) {
-        self.set_len(bytes.len().try_into().unwrap());
+        self.set_length(bytes.len().try_into().unwrap());
 
         unsafe {
             memcpy(
-                self.addr.load(Ordering::SeqCst),
+                self.address.load(Ordering::SeqCst),
                 bytes.as_ptr() as *const c_void,
-                self.get_len() as size_t,
+                self.get_length() as size_t,
             );
         };
     }
 
     pub fn read<'a>(&self) -> &'a [u8] {
-        let content = unsafe {
+        unsafe {
             std::slice::from_raw_parts(
-                self.addr.load(Ordering::SeqCst) as *const u8,
-                self.get_len() as size_t,
+                self.address.load(Ordering::SeqCst) as *const u8,
+                self.get_length() as size_t,
             )
-        };
-
-        content
+        }
     }
 
-    pub fn set_len<'a>(&self, len: u32) {
+    pub fn set_length<'a>(&self, len: u32) {
         let bytes = u32::to_le_bytes(len);
 
         unsafe {
             memcpy(
-                self.len_addr.load(Ordering::SeqCst),
+                self.length_address.load(Ordering::SeqCst),
                 bytes.as_ptr() as *const c_void,
                 4,
             );
 
             let addr = mremap(
-                self.addr.load(Ordering::SeqCst),
-                self.get_len() as size_t,
+                self.address.load(Ordering::SeqCst),
+                self.get_length() as size_t,
                 len as size_t,
                 MREMAP_MAYMOVE,
             );
 
-            if addr != self.addr.load(Ordering::SeqCst) {
-                self.addr.store(addr, Ordering::SeqCst)
+            if addr != self.address.load(Ordering::SeqCst) {
+                self.address.store(addr, Ordering::SeqCst)
             }
         };
     }
 
-    pub fn get_len(&self) -> u32 {
+    pub fn get_length(&self) -> u32 {
         let bytes = unsafe {
-            std::slice::from_raw_parts(self.len_addr.load(Ordering::SeqCst) as *const u8, 4)
+            std::slice::from_raw_parts(self.length_address.load(Ordering::SeqCst) as *const u8, 4)
         };
 
         u32::from_le_bytes(bytes.try_into().unwrap())

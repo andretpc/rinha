@@ -1,10 +1,10 @@
-use super::{semaphore::Semaphore, Mmap};
+use super::Mmap;
+use speedy::{LittleEndian, Readable, Writable};
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 
 pub struct Cache {
-    inner: RwLock<HashMap<i32, Mmap>>,
-    pub semaphore: Semaphore,
+    inner: RwLock<HashMap<String, Mmap>>,
 }
 
 impl Cache {
@@ -25,45 +25,59 @@ impl Cache {
             }
         }
 
-        Self {
-            inner,
-            semaphore: Semaphore::new(),
-        }
+        Self { inner }
     }
 
-    pub async fn init<'a>(&self, key: i32, bytes: &[u8]) -> &'a [u8] {
+    pub async fn get<'a, T>(&self, key: &str) -> Option<T>
+    where
+        T: Readable<'a, LittleEndian>,
+    {
+        let value = self.read(key).await;
+
+        return T::read_from_buffer(value).ok();
+    }
+
+    pub async fn insert<'a, T>(&self, key: &str, value: &T) -> Option<T>
+    where
+        T: Writable<LittleEndian> + Readable<'a, LittleEndian>,
+    {
+        let value_bytes = value.write_to_vec().unwrap();
+        let previous = self.write(key, &value_bytes).await;
+
+        T::read_from_buffer(previous).ok()
+    }
+
+    async fn init<'a>(&self, key: &str, bytes: Option<&[u8]>) -> &'a [u8] {
         let mmap = Mmap::new(&format!("cache-{key}"));
 
-        if mmap.read().iter().all(|&b| b == 0) {
+        if let Some(bytes) = bytes {
             mmap.write(bytes);
         }
 
         let mut guard = self.inner.write().await;
 
-        guard.insert(key, mmap);
+        guard.insert(key.to_string(), mmap);
 
-        guard.get(&key).unwrap().read()
+        guard.get(key).unwrap().read()
     }
 
-    pub async fn get<'a>(&self, key: i32) -> Option<&'a [u8]> {
-        self.inner
-            .read()
-            .await
-            .get(&key)
-            .and_then(|mmap| Some(mmap.read()))
+    async fn read<'a>(&self, key: &str) -> &'a [u8] {
+        if let Some(mmap) = self.inner.read().await.get(key) {
+            return mmap.read();
+        }
+
+        return self.init(key, None).await;
     }
 
-    pub async fn lock(&self, key: i32) {
-        self.semaphore.wait(key).await;
-    }
+    async fn write<'a>(&self, key: &str, bytes: &[u8]) -> &'a [u8] {
+        if let Some(mmap) = self.inner.read().await.get(key) {
+            let prev = mmap.read();
 
-    pub async fn unlock(&self, key: i32) {
-        self.semaphore.release(key).await;
-    }
-
-    pub async fn write<'a>(&self, key: i32, bytes: &'a [u8]) {
-        if let Some(mmap) = self.inner.write().await.get(&key) {
             mmap.write(bytes);
-        };
+
+            return prev;
+        }
+
+        return self.init(key, Some(bytes)).await;
     }
 }

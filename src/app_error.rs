@@ -1,5 +1,4 @@
 use axum::{http::StatusCode, response::IntoResponse};
-use std::array::TryFromSliceError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
@@ -14,12 +13,6 @@ pub enum AppError {
 
     #[error(transparent)]
     DeError(#[from] serde_json::error::Error),
-
-    #[error(transparent)]
-    TryFromSliceError(#[from] TryFromSliceError),
-
-    #[error(transparent)]
-    CacheError(#[from] crate::utils::Error),
 }
 
 impl IntoResponse for AppError {
@@ -36,16 +29,6 @@ impl IntoResponse for AppError {
             AppError::MongoError(_) => (StatusCode::INTERNAL_SERVER_ERROR, message).into_response(),
 
             AppError::DeError(_) => (StatusCode::UNPROCESSABLE_ENTITY, message).into_response(),
-
-            AppError::TryFromSliceError(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, message).into_response()
-            }
-
-            AppError::CacheError(crate::utils::Error::LimitReached) => {
-                (StatusCode::UNPROCESSABLE_ENTITY, message).into_response()
-            }
-
-            AppError::CacheError(_) => (StatusCode::UNPROCESSABLE_ENTITY, message).into_response(),
         }
     }
 }
