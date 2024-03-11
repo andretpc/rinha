@@ -1,4 +1,4 @@
-FROM clux/muslrust:1.72.0 AS builder
+FROM clux/muslrust:1.76.0 AS builder
 
 WORKDIR /app
 

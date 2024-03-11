@@ -41,7 +41,7 @@ impl AppState {
 
         self.named_semaphore.wait(&key).await;
 
-        let result = self._update_client_balance(id, transaction).await;
+        let result = self._update_client_balance(id, transaction, &key).await;
 
         self.named_semaphore.release(&key).await;
 
@@ -52,10 +52,9 @@ impl AppState {
         &self,
         id: i32,
         transaction: &TransactionDTO,
+        key: &str,
     ) -> Result<Client, AppError> {
-        let key = id.to_string();
-
-        let mut client = match self.cache.get(&key).await {
+        let mut client = match self.cache.get(key).await {
             None => self
                 .db
                 .collection::<Client>("clients")
@@ -67,37 +66,40 @@ impl AppState {
 
         client.update(transaction)?;
 
-        self.cache.insert(&key, &client).await;
+        self.cache.insert(key, &client).await;
 
         Ok(client)
     }
 
     pub async fn get_client(&self, id: i32) -> Result<Client, AppError> {
-        let key = format!("{id}");
+        let key = id.to_string();
 
         self.named_semaphore.wait(&key).await;
 
-        let result = self._get_client(id).await;
+        let result = self._get_client(id, &key).await;
 
         self.named_semaphore.release(&key).await;
 
         result
     }
 
-    async fn _get_client(&self, id: i32) -> Result<Client, AppError> {
-        let key = format!("{id}");
-
-        match self.cache.get(&key).await {
-            None => self
+    async fn _get_client(&self, id: i32, key: &str) -> Result<Client, AppError> {
+        match self.cache.get(key).await {
+            None => match self
                 .db
                 .collection::<Client>("clients")
                 .find_one(doc! { "_id": id }, None)
                 .await?
-                .ok_or(AppError::ClientNotFound(id)),
-            Some(client) => {
-                self.cache.insert(&key, &client).await;
-                Ok(client)
-            }
+                .ok_or(AppError::ClientNotFound(id))
+            {
+                Ok(client) => {
+                    self.cache.insert(key, &client).await;
+
+                    Ok(client)
+                }
+                other => other,
+            },
+            Some(client) => Ok(client),
         }
     }
 }
